@@ -2,6 +2,14 @@
 
 This project is an attempt to make Python plugins for Xiaomi devices in Domoticz, using the python-miio library.
 
+Plugin | Device compatibility
+------------ | -------------
+MiioAirPurifier | Xiaomi Mi Air Purifier 
+MiioAirPurifierMiot | Xiaomi Mi Air Purifier 3H
+MiioChuangmiPlug |
+MiioPhilipsBulb |
+MiioPowerStrip |
+
 # Use
 
 Raspberry Pi/Ubuntu installation:
