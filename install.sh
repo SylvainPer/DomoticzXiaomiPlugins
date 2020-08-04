@@ -13,7 +13,7 @@
 #
 # Install with this command (from your Pi):
 #
-# curl -L https://github.com/xiaoyao9184/DomoticzXiaomiPlugins/raw/master/install.sh | bash
+# curl -L https://github.com/SylvainPer/DomoticzXiaomiPlugins/raw/master/install.sh | bash
 
 set -e
 ######## VARIABLES #########
@@ -62,7 +62,7 @@ else
 
     if [ -x "$(command -v sudo)" ]; then
         echo "::: Utility sudo located."
-        exec curl -sSL https://github.com/xiaoyao9184/DomoticzXiaomiPlugins/raw/master/install.sh | sudo bash "$@"
+        exec curl -sSL https://github.com/SylvainPer/DomoticzXiaomiPlugins/raw/master/install.sh | sudo bash "$@"
         exit $?
     else
         echo "::: sudo is needed for the Web interface to run domoticz commands.  Please run this script as root and it will be automatically installed."
@@ -130,7 +130,7 @@ displayFinalMessage() {
     # Final completion message to user
     whiptail --msgbox --backtitle "Ready..." --title "Installation Complete!" "Go to Domoticz and add plugin.
 
-Github:  https://github.com/xiaoyao9184/DomoticzXiaomiPlugins" ${r} ${c}
+Github:  https://github.com/SylvainPer/DomoticzXiaomiPlugins" ${r} ${c}
 }
 
 chooseServices() {
@@ -288,7 +288,7 @@ downloadDomoticzPlugin() {
     cd $Temp_folder
     # Get plugin
     echo "::: Clone github"
-    git clone https://github.com/xiaoyao9184/DomoticzXiaomiPlugins &> /dev/null
+    git clone https://github.com/SylvainPer/DomoticzXiaomiPlugins &> /dev/null
     cd "./DomoticzXiaomiPlugins"
 }
 
