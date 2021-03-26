@@ -22,6 +22,13 @@
         <param field="Mode2" label="Repeat Time(s)" width="30px" required="true" default="120"/>
         <param field="Address" label="IP" width="100px" required="true"/>
         <param field="Mode3" label="Token" width="250px" required="true"/>
+        <param field="Mode4" label="Model name" width="200px" required="true" default="None">
+            <options>
+                <option label="None" value="None" default="true"/>
+                <option label="Purifier 3H" value="h"/>
+                <option label="Purifier 3C" value="c"/>
+            </options>
+        </param>
     </params>
 </plugin>
 """
@@ -69,10 +76,10 @@ class Heartbeat():
         if (self.count >= self.seek):
             self.count = 0
             if self.callback is not None:
-                Domoticz.Log("Calling heartbeat handler " + str(self.callback.__name__) + ".")
+                Domoticz.Debug("Calling heartbeat handler " + str(self.callback.__name__) + ".")
                 self.callback()
         else:
-            Domoticz.Log("Skip heartbeat handler because stage not enough " + str(self.count) + "/" + str(self.seek) + ".")
+            Domoticz.Debug("Skip heartbeat handler because stage not enough " + str(self.count) + "/" + str(self.seek) + ".")
 
     def filter_factor(self, factor):
         return factor < 30 and factor > 5
@@ -402,25 +409,13 @@ class AirPurifierMiotPlugin:
     __UNIT_CHILD_LOCK = 13
     __UNIT_FAVORITE_LEVEL = 14
     __UNIT_LED = 15
-    __UNIT_BRIGHTNESS = 16
+    __UNIT_BRIGHTNESS_H = 16
     __UNIT_MODE = 17
     __UNIT_VOLUME = 18
     __UNIT_TEMPERATURE_HUMIDITY = 19
-    
-    __UNITS = [
-        {
-            "_Name": "AirPurifier_AQI", 
-            "_Unit": __UNIT_AQI, 
-            "_TypeName": "Air Quality",
-            "_Options": None,
-            # {
-                # "Custom": "1;μg/m³"
-            # },
-            "bindingStatusField": "aqi",
-            "mapStatus": MapStatus,
-            "map_status_value": 1, 
-            "map_status_text": None
-        },
+    __UNIT_BRIGHTNESS_C = 20
+
+    __UNITS_H = [
         {
             "_Name": "AirPurifier_Average_AQI", 
             "_Unit": __UNIT_AVG_AQI, 
@@ -434,28 +429,6 @@ class AirPurifierMiotPlugin:
             "map_status_text": None
         },
         {
-            "_Name": "AirPurifier_Filter_Hours_Used", 
-            "_Unit": __UNIT_FILTER_HOURS_USED, 
-            "_TypeName": "Custom",
-            "_Options": {
-                "Custom": "1;h"
-            }, 
-            "bindingStatusField": "filter_hours_used",
-            "mapStatus": MapStatus,
-            "map_status_value": 1, 
-            "map_status_text": None
-        },
-        {
-            "_Name": "AirPurifier_filter_life_remaining", 
-            "_Unit": __UNIT_FILTER_LIFE_REMAINING, 
-            "_TypeName": "Percentage",
-            "_Options": None,
-            "bindingStatusField": "filter_life_remaining",
-            "mapStatus": MapStatus,
-            "map_status_value": 1, 
-            "map_status_text": None
-        },
-        {
             "_Name": "AirPurifier_Humidity", 
             "_Unit": __UNIT_HUMIDITY, 
             "_TypeName": "Humidity",
@@ -464,18 +437,6 @@ class AirPurifierMiotPlugin:
             "mapStatus": MapStatus,
             "map_status_value": None, 
             "map_status_text": MapTextHumidity
-        },
-        {
-            "_Name": "AirPurifier_Motor_speed", 
-            "_Unit": __UNIT_MOTOR_SPEED, 
-            "_TypeName": "Custom",
-            "_Options": {
-                "Custom": "1;Speed"
-            }, 
-            "bindingStatusField": "motor_speed",
-            "mapStatus": MapStatus,
-            "map_status_value": 1, 
-            "map_status_text": None
         },
         {
             "_Name": "AirPurifier_Fan_Level", 
@@ -497,7 +458,7 @@ class AirPurifierMiotPlugin:
             "map_level_status": { 0: 1, 10: 2, 20: 3 },
             "map_level_method": "miio.set_fan_level",
             "map_level_param": { 0: 1, 10: 2, 20: 3 },
-        },        
+        },
         {
             "_Name": "AirPurifier_Purify_Volume", 
             "_Unit": __UNIT_PURIFY_VOLUME, 
@@ -532,13 +493,140 @@ class AirPurifierMiotPlugin:
             "map_status_value": 1, 
             "map_status_text": None
         },
-        # button_pressed
-        # filter_rfid_product_id
-        # filter_rfid_tag
-        # filter_type
-        # sleep_mode
-        # turbo_mode_supported
-
+        {
+            "_Name": "AirPurifier_Favorite_Level", 
+            "_Unit": __UNIT_FAVORITE_LEVEL, 
+            "_TypeName": "Dimmer", 
+            # Selector Switch / Dimmer
+            #"_Switchtype": 7,
+            "_Image": 7,
+            "_Options": None,
+            "bindingStatusField": "favorite_level",
+            "mapStatus": MapStatusWithFactor,
+            "map_status_value": 2, 
+            "map_status_text": None,
+            "mapCommand": MapLevelToMethodParamWithFactor,
+            "map_level_status": None,
+            "map_level_method": "miio.set_favorite_level",
+            "map_level_param": None,
+            "map_factor":7
+        },
+        {
+            "_Name": "AirPurifier_LED", 
+            "_Unit": __UNIT_LED,
+            "_TypeName": "Selector Switch", 
+            # Selector Switch / On/Off
+            "_Switchtype": 0,
+            "_Image": 0,
+            "_Options": None,
+            "bindingStatusField": "led",
+            "mapStatus": MapEnumStatus,
+            "map_status_value": { True: 1, False: 0 }, 
+            "map_status_text": { True: "On", False: "Off" },
+            "mapCommand": MapEnumCommandToMethodParam,
+            "map_command_status": { "On": True, "Off": False },
+            "map_command_method": "miio.set_led",
+            "map_command_method_param": { "On": True, "Off": False }
+        },
+        {
+            "_Name": "AirPurifier_Brightness", 
+            "_Unit": __UNIT_BRIGHTNESS_H, 
+            "_TypeName": "Selector Switch", 
+            # Selector Switch / Selector
+            "_Switchtype": 18,
+            "_Image": 7,
+            "_Options": {
+                "LevelActions"  :"|||" , 
+                "LevelNames"    :"Off|Dim|Bright" ,
+                "LevelOffHidden":"false",
+                "SelectorStyle" :"0"
+            },
+            "bindingStatusField": "led_brightness",
+            "mapStatus": MapEnumStatus,
+            "map_status_value": { miio.airpurifier_miot.LedBrightness.Off: 2, miio.airpurifier_miot.LedBrightness.Dim: 2, miio.airpurifier_miot.LedBrightness.Bright: 2 }, 
+            "map_status_text": { miio.airpurifier_miot.LedBrightness.Off: "0", miio.airpurifier_miot.LedBrightness.Dim: "10", miio.airpurifier_miot.LedBrightness.Bright: "20"},
+            "mapCommand": MapEnumLevelToMethodParam,
+            "map_level_status": { 0: miio.airpurifier_miot.LedBrightness.Off, 10: miio.airpurifier_miot.LedBrightness.Dim, 20: miio.airpurifier_miot.LedBrightness.Bright },
+            "map_level_method": "miio.set_led_brightness",
+            "map_level_param": { 0: miio.airpurifier_miot.LedBrightness.Off, 10: miio.airpurifier_miot.LedBrightness.Dim, 20: miio.airpurifier_miot.LedBrightness.Bright }
+        },
+        {
+            "_Name": "AirPurifier_Buzzer_Volume", 
+            "_Unit": __UNIT_VOLUME,
+            "_TypeName": "Dimmer", 
+            # Selector Switch / Dimmer
+            #"_Switchtype": 7,
+            #"_Image": None,
+            "_Options": None,
+            "bindingStatusField": "buzzer_volume",
+            "mapStatus": MapStatus,
+            "map_status_value": 2, 
+            "map_status_text": None,
+            "mapCommand": MapLevelToMethodParam,
+            "map_level_status": None,
+            "map_level_method": "miio.set_volume",
+            "map_level_param": None
+        },
+        {
+            "_Name": "AirPurifier_Temperature_Humidity", 
+            "_Unit": __UNIT_TEMPERATURE_HUMIDITY, 
+            "_TypeName": "Temp+Hum",
+            "_Options": None,
+            "bindingStatusField": ["temperature","humidity",MapTextHumidity],
+            "mapStatus": MapStatus,
+            "map_status_value": None, 
+            "map_status_text": None
+        }
+    ]
+    
+    __UNITS_B = [
+        {
+            "_Name": "AirPurifier_AQI", 
+            "_Unit": __UNIT_AQI, 
+            "_TypeName": "Air Quality",
+            "_Options": None,
+            # {
+                # "Custom": "1;μg/m³"
+            # },
+            "bindingStatusField": "aqi",
+            "mapStatus": MapStatus,
+            "map_status_value": 1, 
+            "map_status_text": None
+        },
+        {
+            "_Name": "AirPurifier_Filter_Hours_Used", 
+            "_Unit": __UNIT_FILTER_HOURS_USED, 
+            "_TypeName": "Custom",
+            "_Options": {
+                "Custom": "1;h"
+            }, 
+            "bindingStatusField": "filter_hours_used",
+            "mapStatus": MapStatus,
+            "map_status_value": 1, 
+            "map_status_text": None
+        },
+        {
+            "_Name": "AirPurifier_filter_life_remaining", 
+            "_Unit": __UNIT_FILTER_LIFE_REMAINING, 
+            "_TypeName": "Percentage",
+            "_Options": None,
+            "bindingStatusField": "filter_life_remaining",
+            "mapStatus": MapStatus,
+            "map_status_value": 1, 
+            "map_status_text": None
+        },
+        {
+            "_Name": "AirPurifier_Motor_speed", 
+            "_Unit": __UNIT_MOTOR_SPEED, 
+            "_TypeName": "Custom",
+            "_Options": {
+                "Custom": "1;Speed"
+            }, 
+            "bindingStatusField": "motor_speed",
+            "mapStatus": MapStatus,
+            "map_status_value": 1, 
+            "map_status_text": None
+        },        
         {
             "_Name": "AirPurifier_Power", 
             "_Unit": __UNIT_POWER, 
@@ -593,63 +681,6 @@ class AirPurifierMiotPlugin:
             "map_command_method_param": { "On": True, "Off": False }
         },
         {
-            "_Name": "AirPurifier_Favorite_Level", 
-            "_Unit": __UNIT_FAVORITE_LEVEL, 
-            "_TypeName": "Dimmer", 
-            # Selector Switch / Dimmer
-            #"_Switchtype": 7,
-            "_Image": 7,
-            "_Options": None,
-            "bindingStatusField": "favorite_level",
-            "mapStatus": MapStatusWithFactor,
-            "map_status_value": 2, 
-            "map_status_text": None,
-            "mapCommand": MapLevelToMethodParamWithFactor,
-            "map_level_status": None,
-            "map_level_method": "miio.set_favorite_level",
-            "map_level_param": None,
-            "map_factor":7
-        },
-        {
-            "_Name": "AirPurifier_LED", 
-            "_Unit": __UNIT_LED,
-            "_TypeName": "Selector Switch", 
-            # Selector Switch / On/Off
-            "_Switchtype": 0,
-            "_Image": 0,
-            "_Options": None,
-            "bindingStatusField": "led",
-            "mapStatus": MapEnumStatus,
-            "map_status_value": { True: 1, False: 0 }, 
-            "map_status_text": { True: "On", False: "Off" },
-            "mapCommand": MapEnumCommandToMethodParam,
-            "map_command_status": { "On": True, "Off": False },
-            "map_command_method": "miio.set_led",
-            "map_command_method_param": { "On": True, "Off": False }
-        },
-        {
-            "_Name": "AirPurifier_Brightness", 
-            "_Unit": __UNIT_BRIGHTNESS, 
-            "_TypeName": "Selector Switch", 
-            # Selector Switch / Selector
-            "_Switchtype": 18,
-            "_Image": 7,
-            "_Options": {
-                "LevelActions"  :"|||" , 
-                "LevelNames"    :"Off|Dim|Bright" ,
-                "LevelOffHidden":"false",
-                "SelectorStyle" :"0"
-            },
-            "bindingStatusField": "led_brightness",
-            "mapStatus": MapEnumStatus,
-            "map_status_value": { miio.airpurifier_miot.LedBrightness.Off: 2, miio.airpurifier_miot.LedBrightness.Dim: 2, miio.airpurifier_miot.LedBrightness.Bright: 2 }, 
-            "map_status_text": { miio.airpurifier_miot.LedBrightness.Off: "0", miio.airpurifier_miot.LedBrightness.Dim: "10", miio.airpurifier_miot.LedBrightness.Bright: "20"},
-            "mapCommand": MapEnumLevelToMethodParam,
-            "map_level_status": { 0: miio.airpurifier_miot.LedBrightness.Off, 10: miio.airpurifier_miot.LedBrightness.Dim, 20: miio.airpurifier_miot.LedBrightness.Bright },
-            "map_level_method": "miio.set_led_brightness",
-            "map_level_param": { 0: miio.airpurifier_miot.LedBrightness.Off, 10: miio.airpurifier_miot.LedBrightness.Dim, 20: miio.airpurifier_miot.LedBrightness.Bright }
-        },
-        {
             "_Name": "AirPurifier_Mode", 
             "_Unit": __UNIT_MODE, 
             "_TypeName": "Selector Switch", 
@@ -685,33 +716,27 @@ class AirPurifierMiotPlugin:
                 10: miio.airpurifier_miot.OperationMode.Fan, 
                 20: miio.airpurifier_miot.OperationMode.Favorite,
                 30: miio.airpurifier_miot.OperationMode.Silent }
-        },
+        }
+    ]
+    
+    __UNITS_C = [
         {
-            "_Name": "AirPurifier_Buzzer_Volume", 
-            "_Unit": __UNIT_VOLUME,
+            "_Name": "AirPurifier_Brightness", 
+            "_Unit": __UNIT_BRIGHTNESS_C, 
             "_TypeName": "Dimmer", 
             # Selector Switch / Dimmer
             #"_Switchtype": 7,
-            #"_Image": None,
+            "_Image": 7,
             "_Options": None,
-            "bindingStatusField": "buzzer_volume",
-            "mapStatus": MapStatus,
+            "bindingStatusField": "led_brightness_level",
+            "mapStatus": MapStatusWithFactor,
             "map_status_value": 2, 
             "map_status_text": None,
-            "mapCommand": MapLevelToMethodParam,
+            "mapCommand": MapLevelToMethodParamWithFactor,
             "map_level_status": None,
-            "map_level_method": "miio.set_volume",
-            "map_level_param": None
-        },
-        {
-            "_Name": "AirPurifier_Temperature_Humidity", 
-            "_Unit": __UNIT_TEMPERATURE_HUMIDITY, 
-            "_TypeName": "Temp+Hum",
-            "_Options": None,
-            "bindingStatusField": ["temperature","humidity",MapTextHumidity],
-            "mapStatus": MapStatus,
-            "map_status_value": None, 
-            "map_status_text": None
+            "map_level_method": "miio.set_led_brightness_level",
+            "map_level_param": None,
+            "map_factor":8
         }
     ]
 
@@ -719,6 +744,7 @@ class AirPurifierMiotPlugin:
         self.miio = None
         self.status = None
         self.devicesCreated = False
+        self.__UNITS = []
         return
 
     def onStart(self):
@@ -741,15 +767,30 @@ class AirPurifierMiotPlugin:
             # signal error on raspberry
             # rpdb.handle_trap("0.0.0.0", 4444)
 
+        
+
         # Heartbeat
         self.heartbeat = Heartbeat(int(Parameters["Mode2"]))
-        self.heartbeat.setHeartbeat(self.UpdateStatus)
+        if (Parameters["Mode4"] == "None"):
+            Domoticz.Error("No model name set. Stop")
+            self.heartbeat.setHeartbeat(self.doNothing)
+            return
+        else:
+            self.heartbeat.setHeartbeat(self.UpdateStatus)
 
         # Create miio
         ip = Parameters["Address"]
         token = Parameters["Mode3"]
-        
-        self.miio = miio.airpurifier_miot.AirPurifierMiot(ip, token, 0, debug, True)
+        if (Parameters["Mode4"] == "h"):
+            self.miio = miio.airpurifier_miot.AirPurifierMiot(ip, token, 0, debug, True)
+            self.__UNITS = self.__UNITS_B + self.__UNITS_H
+        elif (Parameters["Mode4"] == "c"):
+            try:
+                self.miio = miio.airpurifier_miot.AirPurifierMB4(ip, token, 0, debug, True)
+                self.__UNITS = self.__UNITS_B + self.__UNITS_C
+            except:
+                Domoticz.Error("AirPurifierMB4 not available, update Miio library")
+                self.heartbeat.setHeartbeat(self.doNothing)
         Domoticz.Debug("Xiaomi AirPurifier created with address '" + ip
             + "' and token '" + token + "'")
 
@@ -833,6 +874,9 @@ class AirPurifierMiotPlugin:
 
     def onHeartbeat(self):
         self.heartbeat.beatHeartbeat()
+        return
+        
+    def doNothing(self):
         return
         
 
