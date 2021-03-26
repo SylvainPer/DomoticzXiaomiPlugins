@@ -785,8 +785,12 @@ class AirPurifierMiotPlugin:
             self.miio = miio.airpurifier_miot.AirPurifierMiot(ip, token, 0, debug, True)
             self.__UNITS = self.__UNITS_B + self.__UNITS_H
         elif (Parameters["Mode4"] == "c"):
-            self.miio = miio.airpurifier_miot.AirPurifierMB4(ip, token, 0, debug, True)
-            self.__UNITS = self.__UNITS_B + self.__UNITS_C
+            try:
+                self.miio = miio.airpurifier_miot.AirPurifierMB4(ip, token, 0, debug, True)
+                self.__UNITS = self.__UNITS_B + self.__UNITS_C
+            except:
+                Domoticz.Error("AirPurifierMB4 not available, update Miio library")
+                self.heartbeat.setHeartbeat(self.doNothing)
         Domoticz.Debug("Xiaomi AirPurifier created with address '" + ip
             + "' and token '" + token + "'")
 
