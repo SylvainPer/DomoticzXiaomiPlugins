@@ -583,11 +583,11 @@ class AirPurifierMiotPlugin:
         {
             "_Name": "AirPurifier_AQI", 
             "_Unit": __UNIT_AQI, 
-            "_TypeName": "Air Quality",
-            "_Options": None,
-            # {
-                # "Custom": "1;μg/m³"
-            # },
+            "_TypeName": "Custom",
+            "_Options":
+            {
+                "Custom": "1;μg/m³"
+            },
             "bindingStatusField": "aqi",
             "mapStatus": MapStatus,
             "map_status_value": 1, 
