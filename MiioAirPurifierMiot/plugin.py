@@ -368,7 +368,11 @@ class AirPurifierMiotPlugin:
         if unit["map_factor"] != None:
             param = round(param / unit["map_factor"])
         if unit["map_offset"] != None:
-            param += map_offset      
+            param += unit["map_offset"]
+        if unit["map_min"] != None:
+            param = max(unit["map_offset"],unit["min"])
+        if unit["map_max"] != None:
+            param = min(unit["map_offset"],unit["max"])           
         mapLevelParam = unit["map_level_param"]
         if mapLevelParam != None:
             param = mapLevelParam(self, unit, param)
@@ -516,7 +520,9 @@ class AirPurifierMiotPlugin:
             "map_level_method": "miio.set_favorite_level",
             "map_level_param": None,
             "map_factor":7,
-            "map_offset":None
+            "map_offset":None,
+            "map_min":None,
+            "map_max":None
         },
         {
             "_Name": "AirPurifier_LED", 
@@ -744,7 +750,9 @@ class AirPurifierMiotPlugin:
             "map_level_method": "miio.set_led_brightness_level",
             "map_level_param": None,
             "map_factor":8,
-            "map_offset":None
+            "map_offset":None,
+            "map_min":None,
+            "map_max":None
         },
         {
             "_Name": "AirPurifier_Favorite_Rpm", 
@@ -763,7 +771,9 @@ class AirPurifierMiotPlugin:
             "map_level_method": "miio.set_favorite_level",
             "map_level_param": None,
             "map_factor":0.05,
-            "map_offset":300
+            "map_offset":300,
+            "map_min":300,
+            "map_max":2200            
         }
     ]
 
