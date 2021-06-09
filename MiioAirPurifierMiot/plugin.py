@@ -43,6 +43,9 @@ for mp in site.getsitepackages():
 import Domoticz
 import miio
 import functools
+import threading
+import time
+import queue
 
 
 class Heartbeat():
@@ -769,7 +772,9 @@ class AirPurifierMiotPlugin:
         self.status = None
         self.devicesCreated = False
         self.__UNITS = []
-        return
+        self.handleUpdateStatusRunning = True
+        self.handleUpdateStatusRequired = 0
+        self.UpdateThread = threading.Thread(name="UpdateThread", target=AirPurifierMiotPlugin.handleUpdateStatus, args=(self,))
 
     def onStart(self):
         # Debug
@@ -791,7 +796,7 @@ class AirPurifierMiotPlugin:
             # signal error on raspberry
             # rpdb.handle_trap("0.0.0.0", 4444)
 
-        
+        self.UpdateThread.start()
 
         # Heartbeat
         self.heartbeat = Heartbeat(int(Parameters["Mode2"]))
@@ -861,6 +866,7 @@ class AirPurifierMiotPlugin:
 
     def onStop(self):
         self.status = None
+        self.handleUpdateStatusRunning = False
         Domoticz.Debug("onStop called")
         return
 
@@ -908,52 +914,74 @@ class AirPurifierMiotPlugin:
     def UpdateStatus(self, updateDevice = True):
         if not hasattr(self, "miio"):
             return
-        
-        try:
-            self.status = self.miio.status()
-            self.status = CacheStatus(self.status)
-            log = "Status : " + self.status.toString()
-            Domoticz.Debug(log)
-            
-            if self.devicesCreated == False :
-                if self.status != None :
-                    self.createDevices()
-                    self.devicesCreated = True
+        Domoticz.Debug("UpdateStatus")
+        if (updateDevice):
+            self.handleUpdateStatusRequired = 1
+        else:
+            self.handleUpdateStatusRequired = 2
 
-            # Update devices
-            if (updateDevice):
-                for unit in self.__UNITS:
-                    fields = unit["bindingStatusField"]
-                    if type(fields) is list:        #allow to concatenate several informations
-                        values = None
-                        for field in fields:
-                            if type(field) is str:  #for status content
-                                status = getattr(self.status, field)
+    def handleUpdateStatus(self):
+        Domoticz.Debug("handleUpdateStatus - init")
+        while self.handleUpdateStatusRunning:
+            if self.handleUpdateStatusRequired != 0:
+                Domoticz.Debug("handleUpdateStatus - UPDATE")
+                try:
+                    self.status = self.miio.status()
+                    self.status = CacheStatus(self.status)
+                    log = "Status : " + self.status.toString()
+                    Domoticz.Debug(log)
+                    
+                    if self.devicesCreated == False :
+                        if self.status != None :
+                            self.createDevices()
+                            self.devicesCreated = True
+
+                    # Update devices
+                    if (self.handleUpdateStatusRequired == 1):
+                        for unit in self.__UNITS:
+                            fields = unit["bindingStatusField"]
+                            if type(fields) is list:        #allow to concatenate several informations
+                                values = None
+                                for field in fields:
+                                    if type(field) is str:  #for status content
+                                        status = getattr(self.status, field)
+                                        if status is None:
+                                            pass
+                                        elif "mapStatus" in unit.keys():
+                                            vt = unit["mapStatus"](self, unit, status)
+                                        else:
+                                            vt["text"] = str(status)
+                                    else:                   #for functions
+                                        vt["text"] = str(field(self,unit,0))
+                                    if values == None:
+                                        values = str(vt["text"])
+                                    else:
+                                        values = values + ";" + str(vt["text"])
+                                UpdateDevice(unit["_Unit"], 0 , values)
+                            else:
+                                status = getattr(self.status, fields)
                                 if status is None:
                                     pass
                                 elif "mapStatus" in unit.keys():
                                     vt = unit["mapStatus"](self, unit, status)
+                                    UpdateDevice(unit["_Unit"], vt["value"], str(vt["text"]))
                                 else:
-                                    vt["text"] = str(status)
-                            else:                   #for functions
-                                vt["text"] = str(field(self,unit,0))
-                            if values == None:
-                                values = str(vt["text"])
-                            else:
-                                values = values + ";" + str(vt["text"])
-                        UpdateDevice(unit["_Unit"], 0 , values)
+                                    UpdateDevice(unit["_Unit"], status, str(status))
+                    self.handleUpdateStatusRequired = 0
+                    
+                except Exception as updateError :
+                    #filter known errors
+                    if isinstance(updateError,miio.exceptions.DeviceError) and updateError.code == -9999:
+                        Domoticz.Log("UpdateStatus: " + repr(updateError))
+                    elif isinstance(updateError,miio.exceptions.DeviceException) and updateError.args[0] == "No response from the device":
+                        Domoticz.Log("UpdateStatus: " + repr(updateError))
                     else:
-                        status = getattr(self.status, fields)
-                        if status is None:
-                            pass
-                        elif "mapStatus" in unit.keys():
-                            vt = unit["mapStatus"](self, unit, status)
-                            UpdateDevice(unit["_Unit"], vt["value"], str(vt["text"]))
-                        else:
-                            UpdateDevice(unit["_Unit"], status, str(status))
-            return
-        except Exception as updateError :
-            Domoticz.Error("UpdateStatus: " + repr(updateError))
+                        Domoticz.Error("UpdateStatus: " + repr(updateError))
+                    time.sleep(10)
+        Domoticz.Debug("handleUpdateStatus - stop")
+
+
+
 
 
 global _plugin
