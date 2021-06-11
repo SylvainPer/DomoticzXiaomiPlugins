@@ -983,11 +983,11 @@ class AirPurifierMiotPlugin:
                     #filter known errors
                     if isinstance(updateError,miio.exceptions.DeviceError) and updateError.code == -9999:
                         Domoticz.Log("UpdateStatus: " + repr(updateError))
-                    elif isinstance(updateError,miio.exceptions.DeviceException) and updateError.args[0] == "No response from the device":
+                    elif isinstance(updateError,miio.exceptions.DeviceException) and "Unable to discover the device" in updateError.args[0]:
                         Domoticz.Log("UpdateStatus: " + repr(updateError))
                     else:
                         Domoticz.Error("UpdateStatus: " + repr(updateError))
-                    time.sleep(10)
+            time.sleep(10)
         Domoticz.Debug("handleUpdateStatus - stop")
 
 
