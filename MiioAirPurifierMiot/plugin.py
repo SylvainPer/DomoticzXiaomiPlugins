@@ -782,9 +782,8 @@ class AirPurifierMiotPlugin:
         self.status = None
         self.devicesCreated = False
         self.__UNITS = []
-        self.handleUpdateStatusRunning = True
-        self.handleUpdateStatusRequired = 0
-        self.UpdateThread = threading.Thread(name="UpdateThread", target=AirPurifierMiotPlugin.handleUpdateStatus, args=(self,))
+        self.messageQueue = queue.Queue()
+        self.UpdateThread = threading.Thread(name="UpdateThread", target=AirPurifierMiotPlugin.handleCmdQueue, args=(self,))
 
     def onStart(self):
         # Debug
@@ -876,8 +875,17 @@ class AirPurifierMiotPlugin:
 
     def onStop(self):
         self.status = None
-        self.handleUpdateStatusRunning = False
-        Domoticz.Debug("onStop called")
+        # signal queue thread to exit
+        self.messageQueue.put(None)
+        self.messageQueue.join()
+
+        # Wait until queue thread has exited
+        Domoticz.Log("Threads still active: "+str(threading.active_count())+", should be 1.")
+        while (threading.active_count() > 1):
+            for thread in threading.enumerate():
+                if (thread.name != threading.current_thread().name):
+                    Domoticz.Log("'"+thread.name+"' is still running, waiting otherwise Domoticz will abort on plugin exit.")
+            time.sleep(1.0)
         return
 
     def onConnect(self, Connection, Status, Description):
@@ -893,16 +901,7 @@ class AirPurifierMiotPlugin:
 
         unit = FindUnit(self.__UNITS, Unit)
         if unit is not None and "mapCommand" in unit.keys():
-            status = unit["mapCommand"](self, unit, Command, Level)
-            if status != None:
-                # Update device
-                field = unit["bindingStatusField"]
-                setattr(self.status, field, status)
-                vt = unit["mapStatus"](self, unit, status)
-                UpdateDevice(unit["_Unit"], vt["value"], str(vt["text"]))
-            #return
-        # TODO Update devices
-        #self.UpdateStatus()
+            self.messageQueue.put({"Type":"Command", "unit":unit, "Command":Command, "Level":Level})
         return
 
     def onNotification(self, Name, Subject, Text, Status, Priority, Sound, ImageFile):
@@ -926,15 +925,22 @@ class AirPurifierMiotPlugin:
             return
         Domoticz.Debug("UpdateStatus")
         if (updateDevice):
-            self.handleUpdateStatusRequired = 1
+            self.messageQueue.put({"Type":"UpdateStatus", "UpdateDevices":True})
         else:
-            self.handleUpdateStatusRequired = 2
+            self.messageQueue.put({"Type":"UpdateStatus", "UpdateDevices":False})
 
-    def handleUpdateStatus(self):
-        Domoticz.Debug("handleUpdateStatus - init")
-        while self.handleUpdateStatusRunning:
-            if self.handleUpdateStatusRequired != 0:
-                Domoticz.Debug("handleUpdateStatus - UPDATE")
+    def handleCmdQueue(self):
+        Domoticz.Debug("handleCmdQueue - init")
+        while True:
+            Message = self.messageQueue.get(block=True)
+            if Message is None:
+                Domoticz.Debug("Exiting message handler")
+                self.messageQueue.task_done()
+                break
+                
+            if (Message["Type"] == "UpdateStatus"):
+                Domoticz.Debug("handleCmdQueue - UPDATE")
+                self.messageQueue.task_done()
                 try:
                     self.status = self.miio.status()
                     self.status = CacheStatus(self.status)
@@ -947,7 +953,7 @@ class AirPurifierMiotPlugin:
                             self.devicesCreated = True
 
                     # Update devices
-                    if (self.handleUpdateStatusRequired == 1):
+                    if (Message["UpdateDevices"] == True):
                         for unit in self.__UNITS:
                             fields = unit["bindingStatusField"]
                             if type(fields) is list:        #allow to concatenate several informations
@@ -977,7 +983,6 @@ class AirPurifierMiotPlugin:
                                     UpdateDevice(unit["_Unit"], vt["value"], str(vt["text"]))
                                 else:
                                     UpdateDevice(unit["_Unit"], status, str(status))
-                    self.handleUpdateStatusRequired = 0
                     
                 except Exception as updateError :
                     #filter known errors
@@ -987,8 +992,20 @@ class AirPurifierMiotPlugin:
                         Domoticz.Log("UpdateStatus: " + repr(updateError))
                     else:
                         Domoticz.Error("UpdateStatus: " + repr(updateError))
-            time.sleep(10)
-        Domoticz.Debug("handleUpdateStatus - stop")
+            elif (Message["Type"] == "Command"):
+                Domoticz.Debug("handleCmdQueue - COMMAND")
+                self.messageQueue.task_done()
+                status = Message["unit"]["mapCommand"](self, Message["unit"], Message["Command"], Message["Level"])
+                if status != None:
+                    # Update device
+                    field = Message["unit"]["bindingStatusField"]
+                    setattr(self.status, field, status)
+                    vt = Message["unit"]["mapStatus"](self, Message["unit"], status)
+                    UpdateDevice(Message["unit"]["_Unit"], vt["value"], str(vt["text"]))
+                    #self.UpdateStatus()
+                
+
+        Domoticz.Debug("handleCmdQueue - stop")
 
 
 
