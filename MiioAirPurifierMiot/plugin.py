@@ -37,16 +37,19 @@
 import os
 import sys
 import site
+
 for mp in site.getsitepackages():
     sys.path.append(mp)
 
 import Domoticz
 import miio
 import functools
+import threading
+import time
+import queue
 
 
-class Heartbeat():
-
+class Heartbeat:
     def __init__(self, interval):
         self.callback = None
         self.count = 0
@@ -55,9 +58,9 @@ class Heartbeat():
         self.interval = 10
         # real interval
         self.total = 10
-        if (interval < 0):
+        if interval < 0:
             pass
-        elif (0 < interval and interval < 30):
+        elif 0 < interval and interval < 30:
             self.interval = interval
             self.total = interval
         else:
@@ -70,16 +73,24 @@ class Heartbeat():
         Domoticz.Heartbeat(self.interval)
         Domoticz.Log("Heartbeat total interval set to: " + str(self.total) + ".")
         self.callback = func_callback
-            
+
     def beatHeartbeat(self):
         self.count += 1
-        if (self.count >= self.seek):
+        if self.count >= self.seek:
             self.count = 0
             if self.callback is not None:
-                Domoticz.Debug("Calling heartbeat handler " + str(self.callback.__name__) + ".")
+                Domoticz.Debug(
+                    "Calling heartbeat handler " + str(self.callback.__name__) + "."
+                )
                 self.callback()
         else:
-            Domoticz.Debug("Skip heartbeat handler because stage not enough " + str(self.count) + "/" + str(self.seek) + ".")
+            Domoticz.Debug(
+                "Skip heartbeat handler because stage not enough "
+                + str(self.count)
+                + "/"
+                + str(self.seek)
+                + "."
+            )
 
     def filter_factor(self, factor):
         return factor < 30 and factor > 5
@@ -91,9 +102,9 @@ class Heartbeat():
                 return {
                     "number": number,
                     "factor": factor,
-                    "repeat": int(number / factor)
+                    "repeat": int(number / factor),
                 }
-            factor-=1
+            factor -= 1
         else:
             return func_prime(number)
 
@@ -115,8 +126,8 @@ class Heartbeat():
 
 class CacheStatus(object):
     def __init__(self, status):
-      self.status = status
-      self.cache = {}
+        self.status = status
+        self.cache = {}
 
     def __getattr__(self, name):
         if name not in self.cache:
@@ -128,7 +139,7 @@ class CacheStatus(object):
         return self.cache[name]
 
     def __setattr__(self, name, value):
-        if(name == 'status' or name == 'cache'):
+        if name == "status" or name == "cache":
             super(CacheStatus, self).__setattr__(name, value)
             return
         self.cache[name] = value
@@ -136,14 +147,13 @@ class CacheStatus(object):
     def toString(self):
         l = []
         for attr in dir(self.status):
-            if(attr[:1] != "_" and attr != 'data'):
+            if attr[:1] != "_" and attr != "data":
                 value = getattr(self.status, attr)
-                l.append(str(attr + ' = ' + str(value)) )
-        return ', '.join(l)
+                l.append(str(attr + " = " + str(value)))
+        return ", ".join(l)
 
 
 class AirPurifierMiotPlugin:
-
     def MapEnumStatus(self, unit, status):
         try:
             value = None
@@ -157,14 +167,11 @@ class AirPurifierMiotPlugin:
                 text = unit["map_status_text"][status]
             else:
                 text = status
-            
-        except Exception as updateError :
+
+        except Exception as updateError:
             Domoticz.Error("MapEnumStatus: " + repr(updateError))
 
-        return {
-            "value": value,
-            "text": text
-        }
+        return {"value": value, "text": text}
 
     def MapStatus(self, unit, status):
         try:
@@ -193,15 +200,12 @@ class AirPurifierMiotPlugin:
                     text = mapStatusText(self, unit, status)
             else:
                 text = status
-                
-        except Exception as updateError :
+
+        except Exception as updateError:
             Domoticz.Error("MapEnumStatus: " + repr(updateError))
-            
-        return {
-            "value": value,
-            "text": text
-        }
-    
+
+        return {"value": value, "text": text}
+
     def MapStatusWithFactor(self, unit, status):
         try:
             value = None
@@ -221,7 +225,7 @@ class AirPurifierMiotPlugin:
                 mapStatusText = unit["map_status_text"]
                 if mapStatusText == None:
                     if unit["map_factor"] != None:
-                        status = max(0,min(100,status*unit["map_factor"]))
+                        status = max(0, min(100, status * unit["map_factor"]))
                     text = str(status)
                 elif type(mapStatusText) is str:
                     text = mapStatusText
@@ -231,15 +235,12 @@ class AirPurifierMiotPlugin:
                     text = mapStatusText(self, unit, status)
             else:
                 if unit["map_factor"] != None:
-                        status = max(0,min(100,status*unit["map_factor"]))
+                    status = max(0, min(100, status * unit["map_factor"]))
                 text = status
-        except Exception as updateError :
+        except Exception as updateError:
             Domoticz.Error("MapEnumStatus: " + repr(updateError))
-            
-        return {
-            "value": value,
-            "text": text
-        }
+
+        return {"value": value, "text": text}
 
     def MapEnumCommandToMethod(self, unit, command, level):
         field = unit["bindingStatusField"]
@@ -252,16 +253,15 @@ class AirPurifierMiotPlugin:
 
         method = unit["map_command_method"][command]
         method = rgetattr(self, method)
-        try :
+        try:
             result = method()
             Domoticz.Log("Method call result:" + str(result))
-            if (result[0]['code'] == 0):
+            if result[0]["code"] == 0:
                 return status_new
 
-        except Exception as updateError :
+        except Exception as updateError:
             Domoticz.Error("MapEnumCommandToMethod: " + repr(updateError))
 
-        
         return None
 
     def MapEnumCommandToMethodParam(self, unit, command, level):
@@ -277,14 +277,14 @@ class AirPurifierMiotPlugin:
         method = rgetattr(self, method)
         param = unit["map_command_method_param"][command]
 
-        try :
+        try:
             result = method(param)
-        
+
             Domoticz.Log("Method call result:" + str(result))
-            if (result[0]['code'] == 0):
+            if result[0]["code"] == 0:
                 return status_new
 
-        except Exception as updateError :
+        except Exception as updateError:
             Domoticz.Error("MapEnumCommandToMethodParam: " + repr(updateError))
 
         return None
@@ -301,15 +301,15 @@ class AirPurifierMiotPlugin:
         method = unit["map_level_method"]
         method = rgetattr(self, method)
         param = unit["map_level_param"][level]
-        
-        try :
+
+        try:
             result = method(param)
-        
+
             Domoticz.Log("Method call result:" + str(result))
-            if (result[0]['code'] == 0):
+            if result[0]["code"] == 0:
                 return status_new
 
-        except Exception as updateError :
+        except Exception as updateError:
             Domoticz.Error("MapEnumLevelToMethodParam: " + repr(updateError))
 
         return None
@@ -323,7 +323,9 @@ class AirPurifierMiotPlugin:
         if mapLevelStatus != None:
             status_new = mapLevelStatus(self, unit, level)
             if status_new == status_old:
-                Domoticz.Log("The command is consistent with the status:" + str(command))
+                Domoticz.Log(
+                    "The command is consistent with the status:" + str(command)
+                )
                 return None
 
         method = unit["map_level_method"]
@@ -333,20 +335,18 @@ class AirPurifierMiotPlugin:
         if mapLevelParam != None:
             param = mapLevelParam(self, unit, level)
 
-        try :
+        try:
             result = method(param)
-        
+
             Domoticz.Log("Method call result:" + str(result))
-            if (result[0]['code'] == 0):
+            if result[0]["code"] == 0:
                 return status_new
 
-        except Exception as updateError :
+        except Exception as updateError:
             Domoticz.Error("MapLevelToMethodParam: " + repr(updateError))
 
-
         return None
-        
-        
+
     def MapLevelToMethodParamWithFactor(self, unit, command, level):
         field = unit["bindingStatusField"]
         status_old = getattr(self.status, field)
@@ -356,7 +356,9 @@ class AirPurifierMiotPlugin:
         if mapLevelStatus != None:
             status_new = mapLevelStatus(self, unit, level)
             if status_new == status_old:
-                Domoticz.Log("The command is consistent with the status:" + str(command))
+                Domoticz.Log(
+                    "The command is consistent with the status:" + str(command)
+                )
                 return None
 
         method = unit["map_level_method"]
@@ -364,37 +366,41 @@ class AirPurifierMiotPlugin:
         param = level
         if unit["map_factor"] != None:
             param = round(param / unit["map_factor"])
+        if unit["map_offset"] != None:
+            param += unit["map_offset"]
+        if unit["map_min"] != None:
+            param = max(unit["map_offset"], unit["min"])
+        if unit["map_max"] != None:
+            param = min(unit["map_offset"], unit["max"])
         mapLevelParam = unit["map_level_param"]
         if mapLevelParam != None:
             param = mapLevelParam(self, unit, param)
 
-        try :
+        try:
             result = method(param)
-        
+
             Domoticz.Log("Method call result:" + str(result))
-            if (result[0]['code'] == 0):
+            if result[0]["code"] == 0:
                 return param
 
-        except Exception as updateError :
+        except Exception as updateError:
             Domoticz.Error("MapLevelToMethodParam: " + repr(updateError))
-
 
         return None
 
     # fix humidity
     def MapTextHumidity(self, unit, status):
         sValue = 0
-        n = int(getattr(self.status,"humidity"))
+        n = int(getattr(self.status, "humidity"))
         if n < 46:
-            sValue = 2        #dry
+            sValue = 2  # dry
         elif n > 70:
-            sValue = 3        #wet
+            sValue = 3  # wet
         else:
-            sValue = 1        #comfortable
+            sValue = 1  # comfortable
         return sValue
 
-
-    __UNIT_AQI = 1
+    __UNIT_AQI = 99
     __UNIT_AVG_AQI = 2
     __UNIT_FILTER_HOURS_USED = 3
     __UNIT_FILTER_LIFE_REMAINING = 4
@@ -414,330 +420,366 @@ class AirPurifierMiotPlugin:
     __UNIT_VOLUME = 18
     __UNIT_TEMPERATURE_HUMIDITY = 19
     __UNIT_BRIGHTNESS_C = 20
+    __UNIT_FAVORITE_RPM = 21
 
     __UNITS_H = [
         {
-            "_Name": "AirPurifier_Average_AQI", 
-            "_Unit": __UNIT_AVG_AQI, 
+            "_Name": "AirPurifier_Average_AQI",
+            "_Unit": __UNIT_AVG_AQI,
             "_TypeName": "Custom",
-            "_Options": {
-                "Custom": "1;μg/m³"
-            }, 
+            "_Options": {"Custom": "1;μg/m³"},
             "bindingStatusField": "average_aqi",
             "mapStatus": MapStatus,
-            "map_status_value": 1, 
-            "map_status_text": None
+            "map_status_value": 1,
+            "map_status_text": None,
         },
         {
-            "_Name": "AirPurifier_Humidity", 
-            "_Unit": __UNIT_HUMIDITY, 
+            "_Name": "AirPurifier_Humidity",
+            "_Unit": __UNIT_HUMIDITY,
             "_TypeName": "Humidity",
             "_Options": None,
             "bindingStatusField": "humidity",
             "mapStatus": MapStatus,
-            "map_status_value": None, 
-            "map_status_text": MapTextHumidity
+            "map_status_value": None,
+            "map_status_text": MapTextHumidity,
         },
         {
-            "_Name": "AirPurifier_Fan_Level", 
-            "_Unit": __UNIT_FAN_LEVEL, 
-            "_TypeName": "Selector Switch", 
+            "_Name": "AirPurifier_Fan_Level",
+            "_Unit": __UNIT_FAN_LEVEL,
+            "_TypeName": "Selector Switch",
             "_Switchtype": 18,
             "_Image": 7,
             "_Options": {
-                "LevelActions"  :"|||" , 
-                "LevelNames"    :"Low|Med|High" ,
-                "LevelOffHidden":"false",
-                "SelectorStyle" :"0"
+                "LevelActions": "|||",
+                "LevelNames": "Low|Med|High",
+                "LevelOffHidden": "false",
+                "SelectorStyle": "0",
             },
             "bindingStatusField": "fan_level",
             "mapStatus": MapEnumStatus,
-            "map_status_value": {1 : 2, 2 : 2, 3 : 2,}, 
-            "map_status_text": { 1 : "0", 2 : "10", 3 : "20" },
+            "map_status_value": {
+                1: 2,
+                2: 2,
+                3: 2,
+            },
+            "map_status_text": {1: "0", 2: "10", 3: "20"},
             "mapCommand": MapEnumLevelToMethodParam,
-            "map_level_status": { 0: 1, 10: 2, 20: 3 },
+            "map_level_status": {0: 1, 10: 2, 20: 3},
             "map_level_method": "miio.set_fan_level",
-            "map_level_param": { 0: 1, 10: 2, 20: 3 },
+            "map_level_param": {0: 1, 10: 2, 20: 3},
         },
         {
-            "_Name": "AirPurifier_Purify_Volume", 
-            "_Unit": __UNIT_PURIFY_VOLUME, 
+            "_Name": "AirPurifier_Purify_Volume",
+            "_Unit": __UNIT_PURIFY_VOLUME,
             "_TypeName": "Custom",
-            "_Options": {
-                "Custom": "1;m³"
-            }, 
+            "_Options": {"Custom": "1;m³"},
             "bindingStatusField": "purify_volume",
             "mapStatus": MapStatus,
-            "map_status_value": 1, 
-            "map_status_text": None
+            "map_status_value": 1,
+            "map_status_text": None,
         },
         {
-            "_Name": "AirPurifier_Temperature", 
-            "_Unit": __UNIT_TEMPERATURE, 
+            "_Name": "AirPurifier_Temperature",
+            "_Unit": __UNIT_TEMPERATURE,
             "_TypeName": "Temperature",
             "_Options": None,
             "bindingStatusField": "temperature",
             "mapStatus": MapStatus,
-            "map_status_value": 1, 
-            "map_status_text": None
+            "map_status_value": 1,
+            "map_status_text": None,
         },
         {
-            "_Name": "AirPurifier_Use_time", 
-            "_Unit": __UNIT_USED_TIME, 
+            "_Name": "AirPurifier_Use_time",
+            "_Unit": __UNIT_USED_TIME,
             "_TypeName": "Custom",
-            "_Options": {
-                "Custom": "1;Seconds"
-            }, 
+            "_Options": {"Custom": "1;Seconds"},
             "bindingStatusField": "use_time",
             "mapStatus": MapStatus,
-            "map_status_value": 1, 
-            "map_status_text": None
+            "map_status_value": 1,
+            "map_status_text": None,
         },
         {
-            "_Name": "AirPurifier_Favorite_Level", 
-            "_Unit": __UNIT_FAVORITE_LEVEL, 
-            "_TypeName": "Dimmer", 
+            "_Name": "AirPurifier_Favorite_Level",
+            "_Unit": __UNIT_FAVORITE_LEVEL,
+            "_TypeName": "Dimmer",
             # Selector Switch / Dimmer
-            #"_Switchtype": 7,
+            # "_Switchtype": 7,
             "_Image": 7,
             "_Options": None,
             "bindingStatusField": "favorite_level",
             "mapStatus": MapStatusWithFactor,
-            "map_status_value": 2, 
+            "map_status_value": 2,
             "map_status_text": None,
             "mapCommand": MapLevelToMethodParamWithFactor,
             "map_level_status": None,
             "map_level_method": "miio.set_favorite_level",
             "map_level_param": None,
-            "map_factor":7
+            "map_factor": 7,
+            "map_offset": None,
+            "map_min": None,
+            "map_max": None,
         },
         {
-            "_Name": "AirPurifier_LED", 
+            "_Name": "AirPurifier_LED",
             "_Unit": __UNIT_LED,
-            "_TypeName": "Selector Switch", 
+            "_TypeName": "Selector Switch",
             # Selector Switch / On/Off
             "_Switchtype": 0,
             "_Image": 0,
             "_Options": None,
             "bindingStatusField": "led",
             "mapStatus": MapEnumStatus,
-            "map_status_value": { True: 1, False: 0 }, 
-            "map_status_text": { True: "On", False: "Off" },
+            "map_status_value": {True: 1, False: 0},
+            "map_status_text": {True: "On", False: "Off"},
             "mapCommand": MapEnumCommandToMethodParam,
-            "map_command_status": { "On": True, "Off": False },
+            "map_command_status": {"On": True, "Off": False},
             "map_command_method": "miio.set_led",
-            "map_command_method_param": { "On": True, "Off": False }
+            "map_command_method_param": {"On": True, "Off": False},
         },
         {
-            "_Name": "AirPurifier_Brightness", 
-            "_Unit": __UNIT_BRIGHTNESS_H, 
-            "_TypeName": "Selector Switch", 
+            "_Name": "AirPurifier_Brightness",
+            "_Unit": __UNIT_BRIGHTNESS_H,
+            "_TypeName": "Selector Switch",
             # Selector Switch / Selector
             "_Switchtype": 18,
             "_Image": 7,
             "_Options": {
-                "LevelActions"  :"|||" , 
-                "LevelNames"    :"Off|Dim|Bright" ,
-                "LevelOffHidden":"false",
-                "SelectorStyle" :"0"
+                "LevelActions": "|||",
+                "LevelNames": "Off|Dim|Bright",
+                "LevelOffHidden": "false",
+                "SelectorStyle": "0",
             },
             "bindingStatusField": "led_brightness",
             "mapStatus": MapEnumStatus,
-            "map_status_value": { miio.airpurifier_miot.LedBrightness.Off: 2, miio.airpurifier_miot.LedBrightness.Dim: 2, miio.airpurifier_miot.LedBrightness.Bright: 2 }, 
-            "map_status_text": { miio.airpurifier_miot.LedBrightness.Off: "0", miio.airpurifier_miot.LedBrightness.Dim: "10", miio.airpurifier_miot.LedBrightness.Bright: "20"},
+            "map_status_value": {
+                miio.airpurifier_miot.LedBrightness.Off: 2,
+                miio.airpurifier_miot.LedBrightness.Dim: 2,
+                miio.airpurifier_miot.LedBrightness.Bright: 2,
+            },
+            "map_status_text": {
+                miio.airpurifier_miot.LedBrightness.Off: "0",
+                miio.airpurifier_miot.LedBrightness.Dim: "10",
+                miio.airpurifier_miot.LedBrightness.Bright: "20",
+            },
             "mapCommand": MapEnumLevelToMethodParam,
-            "map_level_status": { 0: miio.airpurifier_miot.LedBrightness.Off, 10: miio.airpurifier_miot.LedBrightness.Dim, 20: miio.airpurifier_miot.LedBrightness.Bright },
+            "map_level_status": {
+                0: miio.airpurifier_miot.LedBrightness.Off,
+                10: miio.airpurifier_miot.LedBrightness.Dim,
+                20: miio.airpurifier_miot.LedBrightness.Bright,
+            },
             "map_level_method": "miio.set_led_brightness",
-            "map_level_param": { 0: miio.airpurifier_miot.LedBrightness.Off, 10: miio.airpurifier_miot.LedBrightness.Dim, 20: miio.airpurifier_miot.LedBrightness.Bright }
+            "map_level_param": {
+                0: miio.airpurifier_miot.LedBrightness.Off,
+                10: miio.airpurifier_miot.LedBrightness.Dim,
+                20: miio.airpurifier_miot.LedBrightness.Bright,
+            },
         },
         {
-            "_Name": "AirPurifier_Buzzer_Volume", 
+            "_Name": "AirPurifier_Buzzer_Volume",
             "_Unit": __UNIT_VOLUME,
-            "_TypeName": "Dimmer", 
+            "_TypeName": "Dimmer",
             # Selector Switch / Dimmer
-            #"_Switchtype": 7,
-            #"_Image": None,
+            # "_Switchtype": 7,
+            # "_Image": None,
             "_Options": None,
             "bindingStatusField": "buzzer_volume",
             "mapStatus": MapStatus,
-            "map_status_value": 2, 
+            "map_status_value": 2,
             "map_status_text": None,
             "mapCommand": MapLevelToMethodParam,
             "map_level_status": None,
             "map_level_method": "miio.set_volume",
-            "map_level_param": None
+            "map_level_param": None,
         },
         {
-            "_Name": "AirPurifier_Temperature_Humidity", 
-            "_Unit": __UNIT_TEMPERATURE_HUMIDITY, 
+            "_Name": "AirPurifier_Temperature_Humidity",
+            "_Unit": __UNIT_TEMPERATURE_HUMIDITY,
             "_TypeName": "Temp+Hum",
             "_Options": None,
-            "bindingStatusField": ["temperature","humidity",MapTextHumidity],
+            "bindingStatusField": ["temperature", "humidity", MapTextHumidity],
             "mapStatus": MapStatus,
-            "map_status_value": None, 
-            "map_status_text": None
-        }
+            "map_status_value": None,
+            "map_status_text": None,
+        },
     ]
-    
+
     __UNITS_B = [
         {
-            "_Name": "AirPurifier_AQI", 
-            "_Unit": __UNIT_AQI, 
+            "_Name": "AirPurifier_AQI",
+            "_Unit": __UNIT_AQI,
             "_TypeName": "Custom",
-            "_Options":
-            {
-                "Custom": "1;μg/m³"
-            },
+            "_Options": {"Custom": "1;μg/m³"},
             "bindingStatusField": "aqi",
             "mapStatus": MapStatus,
-            "map_status_value": 1, 
-            "map_status_text": None
+            "map_status_value": 1,
+            "map_status_text": None,
         },
         {
-            "_Name": "AirPurifier_Filter_Hours_Used", 
-            "_Unit": __UNIT_FILTER_HOURS_USED, 
+            "_Name": "AirPurifier_Filter_Hours_Used",
+            "_Unit": __UNIT_FILTER_HOURS_USED,
             "_TypeName": "Custom",
-            "_Options": {
-                "Custom": "1;h"
-            }, 
+            "_Options": {"Custom": "1;h"},
             "bindingStatusField": "filter_hours_used",
             "mapStatus": MapStatus,
-            "map_status_value": 1, 
-            "map_status_text": None
+            "map_status_value": 1,
+            "map_status_text": None,
         },
         {
-            "_Name": "AirPurifier_filter_life_remaining", 
-            "_Unit": __UNIT_FILTER_LIFE_REMAINING, 
+            "_Name": "AirPurifier_filter_life_remaining",
+            "_Unit": __UNIT_FILTER_LIFE_REMAINING,
             "_TypeName": "Percentage",
             "_Options": None,
             "bindingStatusField": "filter_life_remaining",
             "mapStatus": MapStatus,
-            "map_status_value": 1, 
-            "map_status_text": None
+            "map_status_value": 1,
+            "map_status_text": None,
         },
         {
-            "_Name": "AirPurifier_Motor_speed", 
-            "_Unit": __UNIT_MOTOR_SPEED, 
+            "_Name": "AirPurifier_Motor_speed",
+            "_Unit": __UNIT_MOTOR_SPEED,
             "_TypeName": "Custom",
-            "_Options": {
-                "Custom": "1;Speed"
-            }, 
+            "_Options": {"Custom": "1;Speed"},
             "bindingStatusField": "motor_speed",
             "mapStatus": MapStatus,
-            "map_status_value": 1, 
-            "map_status_text": None
-        },        
+            "map_status_value": 1,
+            "map_status_text": None,
+        },
         {
-            "_Name": "AirPurifier_Power", 
-            "_Unit": __UNIT_POWER, 
-            "_TypeName": "Selector Switch", 
+            "_Name": "AirPurifier_Power",
+            "_Unit": __UNIT_POWER,
+            "_TypeName": "Selector Switch",
             # Selector Switch / On/Off
             "_Switchtype": 0,
             "_Image": 7,
             "_Options": None,
             "bindingStatusField": "is_on",
             "mapStatus": MapEnumStatus,
-            "map_status_value": { True: 1, False: 0 }, 
-            "map_status_text": { True: "On", False: "Off" },
+            "map_status_value": {True: 1, False: 0},
+            "map_status_text": {True: "On", False: "Off"},
             "mapCommand": MapEnumCommandToMethod,
-            "map_command_status": { "On": True, "Off": False },
-            "map_command_method": {
-                "On": "miio.on",
-                "Off": "miio.off"
-            }
+            "map_command_status": {"On": True, "Off": False},
+            "map_command_method": {"On": "miio.on", "Off": "miio.off"},
         },
         {
-            "_Name": "AirPurifier_Buzzer", 
-            "_Unit": __UNIT_BUZZER, 
-            "_TypeName": "Selector Switch", 
+            "_Name": "AirPurifier_Buzzer",
+            "_Unit": __UNIT_BUZZER,
+            "_TypeName": "Selector Switch",
             # Selector Switch / On/Off
             "_Switchtype": 0,
             "_Image": 9,
             "_Options": None,
             "bindingStatusField": "buzzer",
             "mapStatus": MapEnumStatus,
-            "map_status_value": { True: 1, False: 0 }, 
-            "map_status_text": { True: "On", False: "Off" },
+            "map_status_value": {True: 1, False: 0},
+            "map_status_text": {True: "On", False: "Off"},
             "mapCommand": MapEnumCommandToMethodParam,
-            "map_command_status": { "On": True, "Off": False },
+            "map_command_status": {"On": True, "Off": False},
             "map_command_method": "miio.set_buzzer",
-            "map_command_method_param": { "On": True, "Off": False }
+            "map_command_method_param": {"On": True, "Off": False},
         },
         {
-            "_Name": "AirPurifier_Child_Lock", 
-            "_Unit": __UNIT_CHILD_LOCK, 
-            "_TypeName": "Selector Switch", 
+            "_Name": "AirPurifier_Child_Lock",
+            "_Unit": __UNIT_CHILD_LOCK,
+            "_TypeName": "Selector Switch",
             # Selector Switch / On/Off
             "_Switchtype": 0,
             "_Image": 9,
             "_Options": None,
             "bindingStatusField": "child_lock",
             "mapStatus": MapEnumStatus,
-            "map_status_value": { True: 1, False: 0 }, 
-            "map_status_text": { True: "On", False: "Off" },
+            "map_status_value": {True: 1, False: 0},
+            "map_status_text": {True: "On", False: "Off"},
             "mapCommand": MapEnumCommandToMethodParam,
-            "map_command_status": { "On": True, "Off": False },
+            "map_command_status": {"On": True, "Off": False},
             "map_command_method": "miio.set_child_lock",
-            "map_command_method_param": { "On": True, "Off": False }
+            "map_command_method_param": {"On": True, "Off": False},
         },
         {
-            "_Name": "AirPurifier_Mode", 
-            "_Unit": __UNIT_MODE, 
-            "_TypeName": "Selector Switch", 
+            "_Name": "AirPurifier_Mode",
+            "_Unit": __UNIT_MODE,
+            "_TypeName": "Selector Switch",
             "_Switchtype": 18,
             "_Image": 7,
             "_Options": {
-                "LevelActions"  :"|||||" , 
-                "LevelNames"    :"Auto|Fan|Favorite|Silent" ,
-                "LevelOffHidden":"false",
-                "SelectorStyle" :"0"
+                "LevelActions": "|||||",
+                "LevelNames": "Auto|Fan|Favorite|Silent",
+                "LevelOffHidden": "false",
+                "SelectorStyle": "0",
             },
             "bindingStatusField": "mode",
             "mapStatus": MapEnumStatus,
-            "map_status_value": { 
-                miio.airpurifier_miot.OperationMode.Auto: 2, 
-                miio.airpurifier_miot.OperationMode.Fan: 2, 
-                miio.airpurifier_miot.OperationMode.Favorite: 2, 
-                miio.airpurifier_miot.OperationMode.Silent: 2 }, 
-            "map_status_text": { 
-                miio.airpurifier_miot.OperationMode.Auto: "0", 
-                miio.airpurifier_miot.OperationMode.Fan: "10", 
-                miio.airpurifier_miot.OperationMode.Favorite: "20", 
-                miio.airpurifier_miot.OperationMode.Silent: "30" },
+            "map_status_value": {
+                miio.airpurifier_miot.OperationMode.Auto: 2,
+                miio.airpurifier_miot.OperationMode.Fan: 2,
+                miio.airpurifier_miot.OperationMode.Favorite: 2,
+                miio.airpurifier_miot.OperationMode.Silent: 2,
+            },
+            "map_status_text": {
+                miio.airpurifier_miot.OperationMode.Auto: "0",
+                miio.airpurifier_miot.OperationMode.Fan: "10",
+                miio.airpurifier_miot.OperationMode.Favorite: "20",
+                miio.airpurifier_miot.OperationMode.Silent: "30",
+            },
             "mapCommand": MapEnumLevelToMethodParam,
-            "map_level_status": { 
-                0: miio.airpurifier_miot.OperationMode.Auto, 
-                10: miio.airpurifier_miot.OperationMode.Fan, 
+            "map_level_status": {
+                0: miio.airpurifier_miot.OperationMode.Auto,
+                10: miio.airpurifier_miot.OperationMode.Fan,
                 20: miio.airpurifier_miot.OperationMode.Favorite,
-                30: miio.airpurifier_miot.OperationMode.Silent },
+                30: miio.airpurifier_miot.OperationMode.Silent,
+            },
             "map_level_method": "miio.set_mode",
-            "map_level_param": { 
-                0: miio.airpurifier_miot.OperationMode.Auto, 
-                10: miio.airpurifier_miot.OperationMode.Fan, 
+            "map_level_param": {
+                0: miio.airpurifier_miot.OperationMode.Auto,
+                10: miio.airpurifier_miot.OperationMode.Fan,
                 20: miio.airpurifier_miot.OperationMode.Favorite,
-                30: miio.airpurifier_miot.OperationMode.Silent }
-        }
+                30: miio.airpurifier_miot.OperationMode.Silent,
+            },
+        },
     ]
-    
+
     __UNITS_C = [
         {
-            "_Name": "AirPurifier_Brightness", 
-            "_Unit": __UNIT_BRIGHTNESS_C, 
-            "_TypeName": "Dimmer", 
+            "_Name": "AirPurifier_Brightness",
+            "_Unit": __UNIT_BRIGHTNESS_C,
+            "_TypeName": "Dimmer",
             # Selector Switch / Dimmer
-            #"_Switchtype": 7,
+            # "_Switchtype": 7,
             "_Image": 7,
             "_Options": None,
             "bindingStatusField": "led_brightness_level",
             "mapStatus": MapStatusWithFactor,
-            "map_status_value": 2, 
+            "map_status_value": 2,
             "map_status_text": None,
             "mapCommand": MapLevelToMethodParamWithFactor,
             "map_level_status": None,
             "map_level_method": "miio.set_led_brightness_level",
             "map_level_param": None,
-            "map_factor":8
-        }
+            "map_factor": 8,
+            "map_offset": None,
+            "map_min": None,
+            "map_max": None,
+        },
+        {
+            "_Name": "AirPurifier_Favorite_Rpm",
+            "_Unit": __UNIT_FAVORITE_RPM,
+            "_TypeName": "Dimmer",
+            # Selector Switch / Dimmer
+            # "_Switchtype": 7,
+            "_Image": 7,
+            "_Options": None,
+            "bindingStatusField": "favorite_rpm",
+            "mapStatus": MapStatusWithFactor,
+            "map_status_value": 2,
+            "map_status_text": None,
+            "mapCommand": MapLevelToMethodParamWithFactor,
+            "map_level_status": None,
+            "map_level_method": "miio.set_favorite_level",
+            "map_level_param": None,
+            "map_factor": 0.05,
+            "map_offset": 300,
+            "map_min": 300,
+            "map_max": 2200,
+        },
     ]
 
     def __init__(self):
@@ -745,33 +787,43 @@ class AirPurifierMiotPlugin:
         self.status = None
         self.devicesCreated = False
         self.__UNITS = []
-        return
+        self.handleCmdQueueRunning = True
+        self.messageQueue = queue.Queue()
+        self.UpdateThread = threading.Thread(
+            name="UpdateThread",
+            target=AirPurifierMiotPlugin.handleCmdQueue,
+            args=(self,),
+        )
 
     def onStart(self):
         # Debug
         debug = 0
-        if (Parameters["Mode1"] != "none"):
+        if Parameters["Mode1"] != "none":
             Domoticz.Debugging(1)
             debug = 1
 
-        if (Parameters["Mode1"] == "ptvsd"):
+        if Parameters["Mode1"] == "ptvsd":
             Domoticz.Log("Debugger ptvsd started, use 0.0.0.0:5678 to attach")
             import ptvsd
+
             # signal error on raspberry
             ptvsd.enable_attach()
             ptvsd.wait_for_attach()
-        elif (Parameters["Mode1"] == "rpdb"):
-            Domoticz.Log("Debugger rpdb started, use 'telnet 127.0.0.1 4444' on host to connect")
+        elif Parameters["Mode1"] == "rpdb":
+            Domoticz.Log(
+                "Debugger rpdb started, use 'telnet 127.0.0.1 4444' on host to connect"
+            )
             import rpdb
+
             rpdb.set_trace()
             # signal error on raspberry
             # rpdb.handle_trap("0.0.0.0", 4444)
 
-        
+        self.UpdateThread.start()
 
         # Heartbeat
         self.heartbeat = Heartbeat(int(Parameters["Mode2"]))
-        if (Parameters["Mode4"] == "None"):
+        if Parameters["Mode4"] == "None":
             Domoticz.Error("No model name set. Stop")
             self.heartbeat.setHeartbeat(self.doNothing)
             return
@@ -781,24 +833,31 @@ class AirPurifierMiotPlugin:
         # Create miio
         ip = Parameters["Address"]
         token = Parameters["Mode3"]
-        if (Parameters["Mode4"] == "h"):
+        if Parameters["Mode4"] == "h":
             self.miio = miio.airpurifier_miot.AirPurifierMiot(ip, token, 0, debug, True)
             self.__UNITS = self.__UNITS_B + self.__UNITS_H
-        elif (Parameters["Mode4"] == "c"):
+        elif Parameters["Mode4"] == "c":
             try:
-                self.miio = miio.airpurifier_miot.AirPurifierMB4(ip, token, 0, debug, True)
+                self.miio = miio.airpurifier_miot.AirPurifierMB4(
+                    ip, token, 0, debug, True
+                )
                 self.__UNITS = self.__UNITS_B + self.__UNITS_C
             except:
                 Domoticz.Error("AirPurifierMB4 not available, update Miio library")
                 self.heartbeat.setHeartbeat(self.doNothing)
-        Domoticz.Debug("Xiaomi AirPurifier created with address '" + ip
-            + "' and token '" + token + "'")
+        Domoticz.Debug(
+            "Xiaomi AirPurifier created with address '"
+            + ip
+            + "' and token '"
+            + token
+            + "'"
+        )
 
         # Read function
         self.UpdateStatus(False)
 
         # Create devices
-        if self.status != None :
+        if self.status != None:
             self.createDevices()
             self.devicesCreated = True
 
@@ -808,64 +867,107 @@ class AirPurifierMiotPlugin:
         DumpConfigToLog()
 
         return
-    
+
     def createDevices(self):
         for unit in self.__UNITS:
             field = unit["bindingStatusField"]
-            if type(field) is list :
+            if type(field) is list:
                 field = field[0]
-            try :
+            try:
                 value = getattr(self.status, field)
-            except :
+            except:
                 value = None
             if value is not None and unit["_Unit"] not in Devices:
                 if "_Switchtype" in unit and unit["_Switchtype"] != None:
                     Domoticz.Device(
-                        Name = unit["_Name"], 
-                        Unit = unit["_Unit"],
-                        TypeName = unit["_TypeName"], 
-                        Switchtype = unit["_Switchtype"],
-                        Image = unit["_Image"],
-                        Options = unit["_Options"]).Create()
+                        Name=unit["_Name"],
+                        Unit=unit["_Unit"],
+                        TypeName=unit["_TypeName"],
+                        Switchtype=unit["_Switchtype"],
+                        Image=unit["_Image"],
+                        Options=unit["_Options"],
+                    ).Create()
                 else:
                     Domoticz.Device(
-                        Name = unit["_Name"], 
-                        Unit = unit["_Unit"],
-                        TypeName = unit["_TypeName"], 
-                        Options = unit["_Options"]).Create()
+                        Name=unit["_Name"],
+                        Unit=unit["_Unit"],
+                        TypeName=unit["_TypeName"],
+                        Options=unit["_Options"],
+                    ).Create()
         return
 
     def onStop(self):
-        Domoticz.Debug("onStop called")
+        self.status = None
+        # signal queue thread to exit
+        self.messageQueue.put(None)
+        self.messageQueue.join()
+
+        # Wait until queue thread has exited
+        Domoticz.Log(
+            "Threads still active: " + str(threading.active_count()) + ", should be 1."
+        )
+        while threading.active_count() > 1:
+            for thread in threading.enumerate():
+                if thread.name != threading.current_thread().name:
+                    Domoticz.Log(
+                        "'"
+                        + thread.name
+                        + "' is still running, waiting otherwise Domoticz will abort on plugin exit."
+                    )
+            time.sleep(1.0)
         return
 
     def onConnect(self, Connection, Status, Description):
-        Domoticz.Debug("onConnect called: Connection=" + str(Connection) + ", Status=" + str(Status) + ", Description=" + str(Description))
+        Domoticz.Debug(
+            "onConnect called: Connection="
+            + str(Connection)
+            + ", Status="
+            + str(Status)
+            + ", Description="
+            + str(Description)
+        )
         return
 
     def onMessage(self, Connection, Data):
-        Domoticz.Debug("onMessage called: Connection=" + str(Connection) + ", Data=" + str(Data))
+        Domoticz.Debug(
+            "onMessage called: Connection=" + str(Connection) + ", Data=" + str(Data)
+        )
         return
 
     def onCommand(self, Unit, Command, Level, Hue):
-        Domoticz.Debug("onCommand called: Unit=" + str(Unit) + ", Parameter=" + str(Command) + ", Level=" + str(Level))
+        Domoticz.Debug(
+            "onCommand called: Unit="
+            + str(Unit)
+            + ", Parameter="
+            + str(Command)
+            + ", Level="
+            + str(Level)
+        )
 
         unit = FindUnit(self.__UNITS, Unit)
         if unit is not None and "mapCommand" in unit.keys():
-            status = unit["mapCommand"](self, unit, Command, Level)
-            if status != None:
-                # Update device
-                field = unit["bindingStatusField"]
-                setattr(self.status, field, status)
-                vt = unit["mapStatus"](self, unit, status)
-                UpdateDevice(unit["_Unit"], vt["value"], str(vt["text"]))
-            #return
-        # TODO Update devices
-        #self.UpdateStatus()
+            self.messageQueue.put(
+                {"Type": "Command", "unit": unit, "Command": Command, "Level": Level}
+            )
         return
 
     def onNotification(self, Name, Subject, Text, Status, Priority, Sound, ImageFile):
-        Domoticz.Debug("Notification: " + Name + "," + Subject + "," + Text + "," + Status + "," + str(Priority) + "," + Sound + "," + ImageFile)
+        Domoticz.Debug(
+            "Notification: "
+            + Name
+            + ","
+            + Subject
+            + ","
+            + Text
+            + ","
+            + Status
+            + ","
+            + str(Priority)
+            + ","
+            + Sound
+            + ","
+            + ImageFile
+        )
         return
 
     def onDisconnect(self, Connection):
@@ -875,92 +977,147 @@ class AirPurifierMiotPlugin:
     def onHeartbeat(self):
         self.heartbeat.beatHeartbeat()
         return
-        
+
     def doNothing(self):
         return
-        
 
-    def UpdateStatus(self, updateDevice = True):
+    def UpdateStatus(self, updateDevice=True):
         if not hasattr(self, "miio"):
             return
-        
-        try:
-            self.status = self.miio.status()
-            self.status = CacheStatus(self.status)
-            log = "Status : " + self.status.toString()
-            Domoticz.Debug(log)
-            
-            if self.devicesCreated == False :
-                if self.status != None :
-                    self.createDevices()
-                    self.devicesCreated = True
+        Domoticz.Debug("UpdateStatus")
+        if updateDevice:
+            self.messageQueue.put({"Type": "UpdateStatus", "UpdateDevices": True})
+        else:
+            self.messageQueue.put({"Type": "UpdateStatus", "UpdateDevices": False})
 
-            # Update devices
-            if (updateDevice):
-                for unit in self.__UNITS:
-                    fields = unit["bindingStatusField"]
-                    if type(fields) is list:        #allow to concatenate several informations
-                        values = None
-                        for field in fields:
-                            if type(field) is str:  #for status content
-                                status = getattr(self.status, field)
+    def handleCmdQueue(self):
+        Domoticz.Debug("handleCmdQueue - init")
+        while True:
+            Message = self.messageQueue.get(block=True)
+            if Message is None:
+                Domoticz.Debug("Exiting message handler")
+                self.messageQueue.task_done()
+                break
+
+            if Message["Type"] == "UpdateStatus":
+                Domoticz.Debug("handleCmdQueue - UPDATE")
+                self.messageQueue.task_done()
+                try:
+                    self.status = self.miio.status()
+                    self.status = CacheStatus(self.status)
+                    log = "Status : " + self.status.toString()
+                    Domoticz.Debug(log)
+
+                    if self.devicesCreated == False:
+                        if self.status != None:
+                            self.createDevices()
+                            self.devicesCreated = True
+
+                    # Update devices
+                    if Message["UpdateDevices"] == True:
+                        for unit in self.__UNITS:
+                            fields = unit["bindingStatusField"]
+                            if (
+                                type(fields) is list
+                            ):  # allow to concatenate several informations
+                                values = None
+                                for field in fields:
+                                    if type(field) is str:  # for status content
+                                        status = getattr(self.status, field)
+                                        if status is None:
+                                            pass
+                                        elif "mapStatus" in unit.keys():
+                                            vt = unit["mapStatus"](self, unit, status)
+                                        else:
+                                            vt["text"] = str(status)
+                                    else:  # for functions
+                                        vt["text"] = str(field(self, unit, 0))
+                                    if values == None:
+                                        values = str(vt["text"])
+                                    else:
+                                        values = values + ";" + str(vt["text"])
+                                UpdateDevice(unit["_Unit"], 0, values)
+                            else:
+                                status = getattr(self.status, fields)
                                 if status is None:
                                     pass
                                 elif "mapStatus" in unit.keys():
                                     vt = unit["mapStatus"](self, unit, status)
+                                    UpdateDevice(
+                                        unit["_Unit"], vt["value"], str(vt["text"])
+                                    )
                                 else:
-                                    vt["text"] = str(status)
-                            else:                   #for functions
-                                vt["text"] = str(field(self,unit,0))
-                            if values == None:
-                                values = str(vt["text"])
-                            else:
-                                values = values + ";" + str(vt["text"])
-                        UpdateDevice(unit["_Unit"], 0 , values)
+                                    UpdateDevice(unit["_Unit"], status, str(status))
+
+                except Exception as updateError:
+                    # filter known errors
+                    if (
+                        isinstance(updateError, miio.exceptions.DeviceError)
+                        and updateError.code == -9999
+                    ):
+                        Domoticz.Log("UpdateStatus: " + repr(updateError))
+                    elif (
+                        isinstance(updateError, miio.exceptions.DeviceException)
+                        and "Unable to discover the device" in updateError.args[0]
+                    ):
+                        Domoticz.Log("UpdateStatus: " + repr(updateError))
                     else:
-                        status = getattr(self.status, fields)
-                        if status is None:
-                            pass
-                        elif "mapStatus" in unit.keys():
-                            vt = unit["mapStatus"](self, unit, status)
-                            UpdateDevice(unit["_Unit"], vt["value"], str(vt["text"]))
-                        else:
-                            UpdateDevice(unit["_Unit"], status, str(status))
-            return
-        except Exception as updateError :
-            Domoticz.Error("UpdateStatus: " + repr(updateError))
+                        Domoticz.Error("UpdateStatus: " + repr(updateError))
+            elif Message["Type"] == "Command":
+                Domoticz.Debug("handleCmdQueue - COMMAND")
+                self.messageQueue.task_done()
+                status = Message["unit"]["mapCommand"](
+                    self, Message["unit"], Message["Command"], Message["Level"]
+                )
+                if status != None:
+                    # Update device
+                    field = Message["unit"]["bindingStatusField"]
+                    setattr(self.status, field, status)
+                    vt = Message["unit"]["mapStatus"](self, Message["unit"], status)
+                    UpdateDevice(Message["unit"]["_Unit"], vt["value"], str(vt["text"]))
+                    # self.UpdateStatus()
+
+        Domoticz.Debug("handleCmdQueue - stop")
 
 
 global _plugin
 _plugin = AirPurifierMiotPlugin()
 
+
 def onStart():
     global _plugin
     _plugin.onStart()
+
 
 def onStop():
     global _plugin
     _plugin.onStop()
 
+
 def onConnect(Connection, Status, Description):
     global _plugin
     _plugin.onConnect(Connection, Status, Description)
+
 
 def onMessage(Connection, Data):
     global _plugin
     _plugin.onMessage(Connection, Data)
 
+
 def onCommand(Unit, Command, Level, Hue):
     global _plugin
     _plugin.onCommand(Unit, Command, Level, Hue)
+
 
 def onNotification(Name, Subject, Text, Status, Priority, Sound, ImageFile):
     global _plugin
     _plugin.onNotification(Name, Subject, Text, Status, Priority, Sound, ImageFile)
 
+
 def onDisconnect(Connection):
     global _plugin
     _plugin.onDisconnect(Connection)
+
 
 def onHeartbeat():
     global _plugin
@@ -969,10 +1126,11 @@ def onHeartbeat():
 
 # Generic helper functions
 
+
 def DumpConfigToLog():
     for x in Parameters:
         if Parameters[x] != "":
-            Domoticz.Debug( "'" + x + "':'" + str(Parameters[x]) + "'")
+            Domoticz.Debug("'" + x + "':'" + str(Parameters[x]) + "'")
     Domoticz.Debug("Device count: " + str(len(Devices)))
     for x in Devices:
         Domoticz.Debug("Device:           " + str(x) + " - " + str(Devices[x]))
@@ -983,15 +1141,20 @@ def DumpConfigToLog():
         Domoticz.Debug("Device LastLevel: " + str(Devices[x].LastLevel))
     return
 
+
 def UpdateDevice(Unit, nValue, sValue):
-    if (Unit not in Devices): return
-    
+    if Unit not in Devices:
+        return
+
     if (Devices[Unit].nValue != nValue) or (Devices[Unit].sValue != sValue):
-        Domoticz.Debug("Update '" + Devices[Unit].Name + "' : " + str(nValue) + " - " + str(sValue))
+        Domoticz.Debug(
+            "Update '" + Devices[Unit].Name + "' : " + str(nValue) + " - " + str(sValue)
+        )
         # Warning: The lastest beta does not completly support python 3.5
         # and for unknown reason crash if Update methode is called whitout explicit parameters
-        Devices[Unit].Update(nValue = nValue, sValue = str(sValue))
+        Devices[Unit].Update(nValue=nValue, sValue=str(sValue))
     return
+
 
 def FindUnit(Units, unit):
     for item in Units:
@@ -999,13 +1162,17 @@ def FindUnit(Units, unit):
             return item
     return None
 
+
 def rsetattr(obj, attr, val):
-    pre, _, post = attr.rpartition('.')
+    pre, _, post = attr.rpartition(".")
     return setattr(rgetattr(obj, pre) if pre else obj, post, val)
 
+
 # using wonder's beautiful simplification: https://stackoverflow.com/questions/31174295/getattr-and-setattr-on-nested-objects/31174427?noredirect=1#comment86638618_31174427
+
 
 def rgetattr(obj, attr, *args):
     def _getattr(obj, attr):
         return getattr(obj, attr, *args)
-    return functools.reduce(_getattr, [obj] + attr.split('.'))
+
+    return functools.reduce(_getattr, [obj] + attr.split("."))
