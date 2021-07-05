@@ -900,21 +900,6 @@ class AirPurifierMiotPlugin:
         self.status = None
         # signal queue thread to exit
         self.messageQueue.put(None)
-        self.messageQueue.join()
-
-        # Wait until queue thread has exited
-        Domoticz.Log(
-            "Threads still active: " + str(threading.active_count()) + ", should be 1."
-        )
-        while threading.active_count() > 1:
-            for thread in threading.enumerate():
-                if thread.name != threading.current_thread().name:
-                    Domoticz.Log(
-                        "'"
-                        + thread.name
-                        + "' is still running, waiting otherwise Domoticz will abort on plugin exit."
-                    )
-            time.sleep(1.0)
         return
 
     def onConnect(self, Connection, Status, Description):
